@@ -14,6 +14,7 @@
 // ***************************** НАСТРОЙКИ *****************************
 
 #define AMPERKA_AUDIO 1     //Если аудиовход куплен в амперке тройка модуль
+#define AMPERKA_DIFF 410     //У микрофона от амперки показания к микрофону прибавили 512, чтобы можно было фиксировать отрицательные значения. Для того, чтобы этот код работал, нужно отнимать 512 в некоторых analogread. Почему то на китайской arduino nano это значение рано 410
 // ----- настройка ИК пульта
 #define REMOTE_TYPE 0       // 0 - без пульта, 1 - пульт от WAVGAT, 2 - пульт от KEYES, 3 - кастомный пульт
 // система может работать С ЛЮБЫМ ИК ПУЛЬТОМ (практически). Коды для своего пульта можно задать начиная со строки 160 в прошивке. Коды пультов определяются скетчем IRtest_2.0, читай инструкцию
@@ -51,7 +52,7 @@ byte BRIGHTNESS = 100;      // яркость по умолчанию (0 - 255)
 float RAINBOW_STEP = 5.5;         // шаг изменения цвета радуги
 
 // ----- отрисовка
-#define MODE 0                    // режим при запуске
+#define MODE 3                    // режим при запуске
 #define MAIN_LOOP 5               // период основного цикла отрисовки (по умолчанию 5)
 
 // ----- сигнал
@@ -75,8 +76,8 @@ float SMOOTH = 0.5;               // коэффициент плавности �
 
 // ----- режим цветомузыки
 float SMOOTH_FREQ = 0.8;          // коэффициент плавности анимации частот (по умолчанию 0.8)
-float MAX_COEF_FREQ = 1.2;        // коэффициент порога для "вспышки" цветомузыки (по умолчанию 1.5)
-#define SMOOTH_STEP 20            // шаг уменьшения яркости в режиме цветомузыки (чем больше, тем быстрее гаснет)
+float MAX_COEF_FREQ = 1.4;        // коэффициент порога для "вспышки" цветомузыки (по умолчанию 1.5)
+#define SMOOTH_STEP 15            // шаг уменьшения яркости в режиме цветомузыки (чем больше, тем быстрее гаснет)
 #define LOW_COLOR HUE_RED         // цвет низких частот
 #define MID_COLOR HUE_GREEN       // цвет средних
 #define HIGH_COLOR HUE_YELLOW     // цвет высоких
@@ -331,9 +332,9 @@ void mainLoop() {
       if (this_mode == 0 || this_mode == 1) {
         for (byte i = 0; i < 100; i ++) {                                 // делаем 100 измерений
           RcurrentLevel = analogRead(SOUND_R);                      // с правого
-          if (AMPERKA_AUDIO) RcurrentLevel = RcurrentLevel - 410;
+          if (AMPERKA_AUDIO) RcurrentLevel = RcurrentLevel - AMPERKA_DIFF;
           if (!MONO) LcurrentLevel = analogRead(SOUND_L);           // и левого каналов
-          if (AMPERKA_AUDIO) LcurrentLevel = LcurrentLevel - 410;
+          if (AMPERKA_AUDIO) LcurrentLevel = LcurrentLevel - AMPERKA_DIFF;
           //Serial.println("RcurrentLevel: " + String(RcurrentLevel) + " LcurrentLevel: " + String(LcurrentLevel));
 
           if (RsoundLevel < RcurrentLevel) RsoundLevel = RcurrentLevel;   // ищем максимальное
@@ -426,11 +427,22 @@ void mainLoop() {
         for (byte i = 0; i < 3; i++) {
           colorMusic_aver[i] = colorMusic[i] * averK + colorMusic_aver[i] * (1 - averK);  // общая фильтрация
           colorMusic_f[i] = colorMusic[i] * SMOOTH_FREQ + colorMusic_f[i] * (1 - SMOOTH_FREQ);      // локальная
-          if (colorMusic_f[i] > ((float)colorMusic_aver[i] * MAX_COEF_FREQ)) {
-            thisBright[i] = 255;
-            colorMusicFlash[i] = true;
-            running_flag[i] = true;
-          } else colorMusicFlash[i] = false;
+          if (this_mode == 3) { //изменённый третий режим
+            if(i == 0)
+            Serial.println("colorMusic_f[0] " + String(colorMusic_f[i]));
+            if (colorMusic_f[i] > ((float)colorMusic_aver[i] * MAX_COEF_FREQ)) {
+              thisBright[i] = 255;
+              colorMusicFlash[i] = true;
+              running_flag[i] = true;
+            } else colorMusicFlash[i] = false;
+          } else {
+            if (colorMusic_f[i] > ((float)colorMusic_aver[i] * MAX_COEF_FREQ)) {
+              thisBright[i] = 255;
+              colorMusicFlash[i] = true;
+              running_flag[i] = true;
+            } else colorMusicFlash[i] = false;
+          }
+          
           if (thisBright[i] >= 0) thisBright[i] -= SMOOTH_STEP;
           if (thisBright[i] < EMPTY_BRIGHT) {
             thisBright[i] = EMPTY_BRIGHT;
