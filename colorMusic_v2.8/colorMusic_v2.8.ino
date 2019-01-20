@@ -13,24 +13,25 @@
 
 // ***************************** НАСТРОЙКИ *****************************
 
+#define AMPERKA_AUDIO 1     //Если аудиовход куплен в амперке тройка модуль
 // ----- настройка ИК пульта
-#define REMOTE_TYPE 1       // 0 - без пульта, 1 - пульт от WAVGAT, 2 - пульт от KEYES, 3 - кастомный пульт
+#define REMOTE_TYPE 0       // 0 - без пульта, 1 - пульт от WAVGAT, 2 - пульт от KEYES, 3 - кастомный пульт
 // система может работать С ЛЮБЫМ ИК ПУЛЬТОМ (практически). Коды для своего пульта можно задать начиная со строки 160 в прошивке. Коды пультов определяются скетчем IRtest_2.0, читай инструкцию
 
 // ----- настройки параметров
-#define KEEP_SETTINGS 1     // хранить ВСЕ настройки в энергонезависимой памяти
-#define KEEP_STATE 1		    // сохранять в памяти состояние вкл/выкл системы (с пульта)
+#define KEEP_SETTINGS 0     // хранить ВСЕ настройки в энергонезависимой памяти
+#define KEEP_STATE 1        // сохранять в памяти состояние вкл/выкл системы (с пульта)
 #define RESET_SETTINGS 0    // сброс настроек в EEPROM памяти (поставить 1, прошиться, поставить обратно 0, прошиться. Всё)
 
 // ----- настройки ленты
-#define NUM_LEDS 120        // количество светодиодов (данная версия поддерживает до 410 штук)
+#define NUM_LEDS 20        // количество светодиодов (данная версия поддерживает до 410 штук)
 #define CURRENT_LIMIT 3000  // лимит по току в МИЛЛИАМПЕРАХ, автоматически управляет яркостью (пожалей свой блок питания!) 0 - выключить лимит
-byte BRIGHTNESS = 200;      // яркость по умолчанию (0 - 255)
+byte BRIGHTNESS = 100;      // яркость по умолчанию (0 - 255)
 
 // ----- пины подключения
-#define SOUND_R A2         // аналоговый пин вход аудио, правый канал
-#define SOUND_L A1         // аналоговый пин вход аудио, левый канал
-#define SOUND_R_FREQ A3    // аналоговый пин вход аудио для режима с частотами (через кондер)
+#define SOUND_R A1         // аналоговый пин вход аудио, правый канал
+#define SOUND_L A2         // аналоговый пин вход аудио, левый канал
+#define SOUND_R_FREQ A2    // аналоговый пин вход аудио для режима с частотами (через кондер)
 #define BTN_PIN 3          // кнопка переключения режимов (PIN --- КНОПКА --- GND)
 
 #if defined(__AVR_ATmega32U4__) // Пины для Arduino Pro Micro (смотри схему для Pro Micro на странице проекта!!!)
@@ -38,9 +39,9 @@ byte BRIGHTNESS = 200;      // яркость по умолчанию (0 - 255)
 #define MLED_ON LOW
 #define LED_PIN 9               // пин DI светодиодной ленты на ProMicro, т.к. обычный не выведен.
 #else                           // Пины для других плат Arduino (по умолчанию)
-#define MLED_PIN 13             // пин светодиода режимов
+#define MLED_PIN 12             // пин светодиода режимов
 #define MLED_ON HIGH
-#define LED_PIN 12              // пин DI светодиодной ленты
+#define LED_PIN 13              // пин DI светодиодной ленты
 #endif
 
 #define POT_GND A0              // пин земля для потенциометра
@@ -54,17 +55,17 @@ float RAINBOW_STEP = 5.5;         // шаг изменения цвета рад
 #define MAIN_LOOP 5               // период основного цикла отрисовки (по умолчанию 5)
 
 // ----- сигнал
-#define MONO 1                    // 1 - только один канал (ПРАВЫЙ!!!!! SOUND_R!!!!!), 0 - два канала
+#define MONO 0                    // 1 - только один канал (ПРАВЫЙ!!!!! SOUND_R!!!!!), 0 - два канала
 #define EXP 1.4                   // степень усиления сигнала (для более "резкой" работы) (по умолчанию 1.4)
 #define POTENT 0                  // 1 - используем потенциометр, 0 - используется внутренний источник опорного напряжения 1.1 В
-byte EMPTY_BRIGHT = 30;           // яркость "не горящих" светодиодов (0 - 255)
+byte EMPTY_BRIGHT = 0;           // яркость "не горящих" светодиодов (0 - 255)
 #define EMPTY_COLOR HUE_PURPLE    // цвет "не горящих" светодиодов. Будет чёрный, если яркость 0
 
 // ----- нижний порог шумов
-uint16_t LOW_PASS = 100;          // нижний порог шумов режим VU, ручная настройка
-uint16_t SPEKTR_LOW_PASS = 40;    // нижний порог шумов режим спектра, ручная настройка
+uint16_t LOW_PASS = 10;          // нижний порог шумов режим VU, ручная настройка
+uint16_t SPEKTR_LOW_PASS = 50;    // нижний порог шумов режим спектра, ручная настройка
 #define AUTO_LOW_PASS 0           // разрешить настройку нижнего порога шумов при запуске (по умолч. 0)
-#define EEPROM_LOW_PASS 1         // порог шумов хранится в энергонезависимой памяти (по умолч. 1)
+#define EEPROM_LOW_PASS 0         // порог шумов хранится в энергонезависимой памяти (по умолч. 1)
 #define LOW_PASS_ADD 13           // "добавочная" величина к нижнему порогу, для надёжности (режим VU)
 #define LOW_PASS_FREQ_ADD 3       // "добавочная" величина к нижнему порогу, для надёжности (режим частот)
 
@@ -264,17 +265,19 @@ void setup() {
 
   IRLremote.begin(IR_PIN);
 
-  // для увеличения точности уменьшаем опорное напряжение,
-  // выставив EXTERNAL и подключив Aref к выходу 3.3V на плате через делитель
-  // GND ---[10-20 кОм] --- REF --- [10 кОм] --- 3V3
-  // в данной схеме GND берётся из А0 для удобства подключения
-  if (POTENT) analogReference(EXTERNAL);
-  else
-#if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
-    analogReference(INTERNAL1V1);
-#else
-    analogReference(INTERNAL);
-#endif
+  if(!AMPERKA_AUDIO) { //Для микрофона из амкерки analogReference менять не надо
+      // для увеличения точности уменьшаем опорное напряжение,
+      // выставив EXTERNAL и подключив Aref к выходу 3.3V на плате через делитель
+      // GND ---[10-20 кОм] --- REF --- [10 кОм] --- 3V3
+      // в данной схеме GND берётся из А0 для удобства подключения
+      if (POTENT) analogReference(EXTERNAL);
+      else
+    #if defined(__AVR_ATmega1280__) || defined(__AVR_ATmega2560__)
+        analogReference(INTERNAL1V1);
+    #else
+        analogReference(INTERNAL);
+    #endif
+  }
 
   // жуткая магия, меняем частоту оцифровки до 18 кГц
   // команды на ебучем ассемблере, даже не спрашивайте, как это работает
@@ -327,13 +330,22 @@ void mainLoop() {
       // перваые два режима - громкость (VU meter)
       if (this_mode == 0 || this_mode == 1) {
         for (byte i = 0; i < 100; i ++) {                                 // делаем 100 измерений
-          RcurrentLevel = analogRead(SOUND_R);                            // с правого
-          if (!MONO) LcurrentLevel = analogRead(SOUND_L);                 // и левого каналов
+          RcurrentLevel = analogRead(SOUND_R);                      // с правого
+          if (AMPERKA_AUDIO) RcurrentLevel = RcurrentLevel - 410;
+          if (!MONO) LcurrentLevel = analogRead(SOUND_L);           // и левого каналов
+          if (AMPERKA_AUDIO) LcurrentLevel = LcurrentLevel - 410;
+          //Serial.println("RcurrentLevel: " + String(RcurrentLevel) + " LcurrentLevel: " + String(LcurrentLevel));
 
           if (RsoundLevel < RcurrentLevel) RsoundLevel = RcurrentLevel;   // ищем максимальное
           if (!MONO) if (LsoundLevel < LcurrentLevel) LsoundLevel = LcurrentLevel;   // ищем максимальное
         }
 
+        if(RcurrentLevel < 0) RcurrentLevel = 0;
+        if(LcurrentLevel < 0) LcurrentLevel = 0;
+        
+
+        //Serial.println("RcurrentLevel: " + String(RcurrentLevel) + " LcurrentLevel: " + String(LcurrentLevel));
+          
         // фильтруем по нижнему порогу шумов
         RsoundLevel = map(RsoundLevel, LOW_PASS, 1023, 0, 500);
         if (!MONO)LsoundLevel = map(LsoundLevel, LOW_PASS, 1023, 0, 500);
@@ -457,8 +469,9 @@ void mainLoop() {
       }
       if (this_mode == 6) animation();
 
-      if (!IRLremote.receiving())    // если на ИК приёмник не приходит сигнал (без этого НЕ РАБОТАЕТ!)
+      if (!IRLremote.receiving()) {    // если на ИК приёмник не приходит сигнал (без этого НЕ РАБОТАЕТ!)
         FastLED.show();         // отправить значения на ленту
+      }
 
       if (this_mode != 7)       // 7 режиму не нужна очистка!!!
         FastLED.clear();          // очистить массив пикселей
@@ -940,7 +953,7 @@ void readEEPROM() {
   RAINBOW_PERIOD = EEPROM.readInt(48);
   RUNNING_SPEED = EEPROM.readInt(52);
   HUE_STEP = EEPROM.readInt(56);
-  EMPTY_BRIGHT = EEPROM.readInt(60);
+  //EMPTY_BRIGHT = EEPROM.readInt(60);
   if (KEEP_STATE) ONstate = EEPROM.readByte(64);
 }
 void eepromTick() {
