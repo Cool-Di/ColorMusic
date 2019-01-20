@@ -953,7 +953,7 @@ void readEEPROM() {
   RAINBOW_PERIOD = EEPROM.readInt(48);
   RUNNING_SPEED = EEPROM.readInt(52);
   HUE_STEP = EEPROM.readInt(56);
-  //EMPTY_BRIGHT = EEPROM.readInt(60);
+  EMPTY_BRIGHT = EEPROM.readInt(60);
   if (KEEP_STATE) ONstate = EEPROM.readByte(64);
 }
 void eepromTick() {
