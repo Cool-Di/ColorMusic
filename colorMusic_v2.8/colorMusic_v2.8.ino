@@ -235,7 +235,7 @@ byte this_mode = MODE;
 int thisBright[3], strobe_bright = 0;
 int thisColor[3];
 int currentColor[3];
-int freqMax[3]; //максимальное значение частот на каждом диапазоне
+float freqMaxGlobal[6]; //максимальное значение частот на каждом диапазоне глобальное (долго усредняется)
 unsigned int light_time = STROBE_PERIOD * STROBE_DUTY / 100;
 volatile boolean ir_flag;
 boolean settings_mode, ONstate = true;
@@ -408,17 +408,14 @@ void mainLoop() {
         // низкие частоты, выборка со 2 по 5 тон (0 и 1 зашумленные!)
         for (byte i = 2; i < 6; i++) {
           if (fht_log_out[i] > colorMusic[0]) colorMusic[0] = fht_log_out[i];
-          if (fht_log_out[i] > freqMax[0]) freqMax[0] = fht_log_out[i];
         }
         // средние частоты, выборка с 6 по 10 тон
         for (byte i = 6; i < 11; i++) {
           if (fht_log_out[i] > colorMusic[1]) colorMusic[1] = fht_log_out[i];
-          if (fht_log_out[i] > freqMax[1]) freqMax[1] = fht_log_out[i];
         }
         // высокие частоты, выборка с 11 по 31 тон
         for (byte i = 11; i < 32; i++) {
           if (fht_log_out[i] > colorMusic[2]) colorMusic[2] = fht_log_out[i];
-          if (fht_log_out[i] > freqMax[2]) freqMax[2] = fht_log_out[i];
         }
         freq_max = 0;
         for (byte i = 0; i < 30; i++) {
@@ -435,19 +432,28 @@ void mainLoop() {
           colorMusic_f[i] = colorMusic[i] * SMOOTH_FREQ + colorMusic_f[i] * (1 - SMOOTH_FREQ);      // локальная
           colorMusic_aver[i] = (float)colorMusic_aver[i];
           if (this_mode == 3) { //изменённый третий режим
-            //if(i == 0)
-            //  Serial.println("colorMusic[i] " + String(colorMusic[i]) + "   freqMax[i] " + String(freqMax[i]));
-            if (colorMusic_f[i] > (colorMusic_aver[i] / 5)) {
+            //Если максимальное значение увеличилось, то увеличиваем глобальное максимальное. Но есть максимальное уменьшилось, то уменьшаем его постепенно
+            if(freqMaxGlobal[i] < colorMusic[i]) {
+              freqMaxGlobal[i] = colorMusic[i];
+            } else {
+              freqMaxGlobal[i] = colorMusic[i] * 0.0001 + freqMaxGlobal[i] * (1 - 0.0001);  //очень медленно уменьшается масксимум
+            }
+            //if(i == 1)
+            //    Serial.println("colorMusic[i] " + String(colorMusic[i]) + "   freqMaxGlobal[i] " + String(freqMaxGlobal[i]));
+            
+            if (colorMusic_f[i] > (freqMaxGlobal[i] * 0.2)) {
               //Определяем яркость и цвет в зависимости от значения звука и среднего значения
               thisBright[i] = 0;
-              if(colorMusic_f[i] > colorMusic_aver[i] * 1.5) {//больше 3/4
+              if(colorMusic_f[i] > freqMaxGlobal[i] * 0.75) {//больше 3/4
                 thisBright[i] = 150;
-              } else if(colorMusic_f[i] > colorMusic_aver[i]) {//больше среднего значения
+                currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * 0.2, freqMaxGlobal[i] * 0.75, 145, 20);
+              } else if(colorMusic_f[i] > freqMaxGlobal[i] * 0.5) {//больше среднего значения
                 thisBright[i] = 100;
-              } else if(colorMusic_f[i] > colorMusic_aver[i] / 5) {//если значение больше 1/4 максимального значения звука
-                thisBright[i] = 20;
+                currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * 0.2, freqMaxGlobal[i] * 0.75, 145, 20);
+              } else if(colorMusic_f[i] > freqMaxGlobal[i] * 0.2) {//если значение больше 1/4 максимального значения звука
+                thisBright[i] = 50;
+                currentColor[i] = 145;
               }
-              currentColor[i] = map((int)colorMusic_f[i], (int)colorMusic_aver[i] / 5, (int)colorMusic_aver[i] * 1.8, 145, 20);
               thisColor[i] = currentColor[i] * SMOOTH_FREQ + thisColor[i] * (1 - SMOOTH_FREQ);      //делает смену цвета плавнее
               //thisColor[i] = currentColor[i];
               if(thisColor[i] < 0)
