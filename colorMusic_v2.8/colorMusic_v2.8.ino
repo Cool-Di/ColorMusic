@@ -64,7 +64,7 @@ byte EMPTY_BRIGHT = 0;           // яркость "не горящих" све�
 
 // ----- нижний порог шумов
 uint16_t LOW_PASS = 10;          // нижний порог шумов режим VU, ручная настройка
-uint16_t SPEKTR_LOW_PASS = 50;    // нижний порог шумов режим спектра, ручная настройка
+uint16_t SPEKTR_LOW_PASS = 40;    // нижний порог шумов режим спектра, ручная настройка
 #define AUTO_LOW_PASS 0           // разрешить настройку нижнего порога шумов при запуске (по умолч. 0)
 #define EEPROM_LOW_PASS 0         // порог шумов хранится в энергонезависимой памяти (по умолч. 1)
 #define LOW_PASS_ADD 13           // "добавочная" величина к нижнему порогу, для надёжности (режим VU)
@@ -77,7 +77,7 @@ float SMOOTH = 0.5;               // коэффициент плавности �
 // ----- режим цветомузыки
 float SMOOTH_FREQ = 0.8;          // коэффициент плавности анимации частот (по умолчанию 0.8)
 float MAX_COEF_FREQ = 1.4;        // коэффициент порога для "вспышки" цветомузыки (по умолчанию 1.5)
-#define SMOOTH_STEP 15            // шаг уменьшения яркости в режиме цветомузыки (чем больше, тем быстрее гаснет)
+#define SMOOTH_STEP 10            // шаг уменьшения яркости в режиме цветомузыки (чем больше, тем быстрее гаснет)
 #define LOW_COLOR HUE_RED         // цвет низких частот
 #define MID_COLOR HUE_GREEN       // цвет средних
 #define HIGH_COLOR HUE_YELLOW     // цвет высоких
@@ -233,6 +233,9 @@ float colorMusic_f[3], colorMusic_aver[3];
 boolean colorMusicFlash[3], strobeUp_flag, strobeDwn_flag;
 byte this_mode = MODE;
 int thisBright[3], strobe_bright = 0;
+int thisColor[3];
+int currentColor[3];
+int freqMax[3]; //максимальное значение частот на каждом диапазоне
 unsigned int light_time = STROBE_PERIOD * STROBE_DUTY / 100;
 volatile boolean ir_flag;
 boolean settings_mode, ONstate = true;
@@ -405,14 +408,17 @@ void mainLoop() {
         // низкие частоты, выборка со 2 по 5 тон (0 и 1 зашумленные!)
         for (byte i = 2; i < 6; i++) {
           if (fht_log_out[i] > colorMusic[0]) colorMusic[0] = fht_log_out[i];
+          if (fht_log_out[i] > freqMax[0]) freqMax[0] = fht_log_out[i];
         }
         // средние частоты, выборка с 6 по 10 тон
         for (byte i = 6; i < 11; i++) {
           if (fht_log_out[i] > colorMusic[1]) colorMusic[1] = fht_log_out[i];
+          if (fht_log_out[i] > freqMax[1]) freqMax[1] = fht_log_out[i];
         }
         // высокие частоты, выборка с 11 по 31 тон
         for (byte i = 11; i < 32; i++) {
           if (fht_log_out[i] > colorMusic[2]) colorMusic[2] = fht_log_out[i];
+          if (fht_log_out[i] > freqMax[2]) freqMax[2] = fht_log_out[i];
         }
         freq_max = 0;
         for (byte i = 0; i < 30; i++) {
@@ -427,11 +433,25 @@ void mainLoop() {
         for (byte i = 0; i < 3; i++) {
           colorMusic_aver[i] = colorMusic[i] * averK + colorMusic_aver[i] * (1 - averK);  // общая фильтрация
           colorMusic_f[i] = colorMusic[i] * SMOOTH_FREQ + colorMusic_f[i] * (1 - SMOOTH_FREQ);      // локальная
+          colorMusic_aver[i] = (float)colorMusic_aver[i];
           if (this_mode == 3) { //изменённый третий режим
-            if(i == 0)
-            Serial.println("colorMusic_f[0] " + String(colorMusic_f[i]));
-            if (colorMusic_f[i] > ((float)colorMusic_aver[i] * MAX_COEF_FREQ)) {
-              thisBright[i] = 255;
+            //if(i == 0)
+            //  Serial.println("colorMusic[i] " + String(colorMusic[i]) + "   freqMax[i] " + String(freqMax[i]));
+            if (colorMusic_f[i] > (colorMusic_aver[i] / 5)) {
+              //Определяем яркость и цвет в зависимости от значения звука и среднего значения
+              thisBright[i] = 0;
+              if(colorMusic_f[i] > colorMusic_aver[i] * 1.5) {//больше 3/4
+                thisBright[i] = 150;
+              } else if(colorMusic_f[i] > colorMusic_aver[i]) {//больше среднего значения
+                thisBright[i] = 100;
+              } else if(colorMusic_f[i] > colorMusic_aver[i] / 5) {//если значение больше 1/4 максимального значения звука
+                thisBright[i] = 20;
+              }
+              currentColor[i] = map((int)colorMusic_f[i], (int)colorMusic_aver[i] / 5, (int)colorMusic_aver[i] * 1.8, 145, 20);
+              thisColor[i] = currentColor[i] * SMOOTH_FREQ + thisColor[i] * (1 - SMOOTH_FREQ);      //делает смену цвета плавнее
+              //thisColor[i] = currentColor[i];
+              if(thisColor[i] < 0)
+                thisColor[i] = 145;
               colorMusicFlash[i] = true;
               running_flag[i] = true;
             } else colorMusicFlash[i] = false;
@@ -548,9 +568,9 @@ void animation() {
       break;
     case 3:
       for (int i = 0; i < NUM_LEDS; i++) {
-        if (i < NUM_LEDS / 3)          leds[i] = CHSV(HIGH_COLOR, 255, thisBright[2]);
-        else if (i < NUM_LEDS * 2 / 3) leds[i] = CHSV(MID_COLOR, 255, thisBright[1]);
-        else if (i < NUM_LEDS)         leds[i] = CHSV(LOW_COLOR, 255, thisBright[0]);
+        if (i < NUM_LEDS / 3)          leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
+        else if (i < NUM_LEDS * 2 / 3) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
+        else if (i < NUM_LEDS)         leds[i] = CHSV(thisColor[0], 255, thisBright[0]);
       }
       break;
     case 4:
