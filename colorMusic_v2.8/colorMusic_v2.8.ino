@@ -16,7 +16,7 @@
 #define AMPERKA_AUDIO 1     //Если аудиовход куплен в амперке тройка модуль
 #define AMPERKA_DIFF 410     //У микрофона от амперки показания к микрофону прибавили 512, чтобы можно было фиксировать отрицательные значения. Для того, чтобы этот код работал, нужно отнимать 512 в некоторых analogread. Почему то на китайской arduino nano это значение рано 410
 // ----- настройка ИК пульта
-#define REMOTE_TYPE 0       // 0 - без пульта, 1 - пульт от WAVGAT, 2 - пульт от KEYES, 3 - кастомный пульт
+#define REMOTE_TYPE 2       // 0 - без пульта, 1 - пульт от WAVGAT, 2 - пульт от KEYES, 3 - кастомный пульт
 // система может работать С ЛЮБЫМ ИК ПУЛЬТОМ (практически). Коды для своего пульта можно задать начиная со строки 160 в прошивке. Коды пультов определяются скетчем IRtest_2.0, читай инструкцию
 
 // ----- настройки параметров
@@ -25,14 +25,14 @@
 #define RESET_SETTINGS 0    // сброс настроек в EEPROM памяти (поставить 1, прошиться, поставить обратно 0, прошиться. Всё)
 
 // ----- настройки ленты
-#define NUM_LEDS 20        // количество светодиодов (данная версия поддерживает до 410 штук)
+#define NUM_LEDS 18        // количество светодиодов (данная версия поддерживает до 410 штук)
 #define CURRENT_LIMIT 3000  // лимит по току в МИЛЛИАМПЕРАХ, автоматически управляет яркостью (пожалей свой блок питания!) 0 - выключить лимит
 byte BRIGHTNESS = 100;      // яркость по умолчанию (0 - 255)
 
 // ----- пины подключения
 #define SOUND_R A1         // аналоговый пин вход аудио, правый канал
 #define SOUND_L A2         // аналоговый пин вход аудио, левый канал
-#define SOUND_R_FREQ A2    // аналоговый пин вход аудио для режима с частотами (через кондер)
+#define SOUND_R_FREQ A3    // аналоговый пин вход аудио для режима с частотами (через кондер)
 #define BTN_PIN 3          // кнопка переключения режимов (PIN --- КНОПКА --- GND)
 
 #if defined(__AVR_ATmega32U4__) // Пины для Arduino Pro Micro (смотри схему для Pro Micro на странице проекта!!!)
@@ -184,6 +184,7 @@ byte HUE_STEP = 5;
 #define MODE_AMOUNT 9      // количество режимов
 
 #define STRIPE NUM_LEDS / 5
+#define SEXTA NUM_LEDS / 6
 float freq_to_stripe = NUM_LEDS / 40; // /2 так как симметрия, и /20 так как 20 частот
 
 #define FHT_N 64         // ширина спектра х2
@@ -229,12 +230,13 @@ boolean lowFlag;
 byte low_pass;
 int RcurrentLevel, LcurrentLevel;
 int colorMusic[3];
-float colorMusic_f[3], colorMusic_aver[3];
-boolean colorMusicFlash[3], strobeUp_flag, strobeDwn_flag;
+int colorMusicExt[6]; //расширенный спектр
+float colorMusic_f[6], colorMusic_aver[6];
+boolean colorMusicFlash[6], strobeUp_flag, strobeDwn_flag;
 byte this_mode = MODE;
-int thisBright[3], strobe_bright = 0;
-int thisColor[3];
-int currentColor[3];
+int thisBright[6], strobe_bright = 0;
+int thisColor[6];
+int currentColor[6];
 float freqMaxGlobal[6]; //максимальное значение частот на каждом диапазоне глобальное (долго усредняется)
 unsigned int light_time = STROBE_PERIOD * STROBE_DUTY / 100;
 volatile boolean ir_flag;
@@ -244,7 +246,7 @@ int freq_max;
 float freq_max_f, rainbow_steps;
 int freq_f[32];
 int this_color;
-boolean running_flag[3], eeprom_flag;
+boolean running_flag[6], eeprom_flag;
 
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
@@ -396,8 +398,8 @@ void mainLoop() {
         }
       }
 
-      // 3-5 режим - цветомузыка
-      if (this_mode == 2 || this_mode == 3 || this_mode == 4 || this_mode == 7 || this_mode == 8) {
+      // 3,5 режим - цветомузыка
+      if (this_mode == 2 || this_mode == 4 || this_mode == 7 || this_mode == 8) {
         analyzeAudio();
         colorMusic[0] = 0;
         colorMusic[1] = 0;
@@ -431,43 +433,92 @@ void mainLoop() {
           colorMusic_aver[i] = colorMusic[i] * averK + colorMusic_aver[i] * (1 - averK);  // общая фильтрация
           colorMusic_f[i] = colorMusic[i] * SMOOTH_FREQ + colorMusic_f[i] * (1 - SMOOTH_FREQ);      // локальная
           colorMusic_aver[i] = (float)colorMusic_aver[i];
-          if (this_mode == 3) { //изменённый третий режим
-            //Если максимальное значение увеличилось, то увеличиваем глобальное максимальное. Но есть максимальное уменьшилось, то уменьшаем его постепенно
-            if(freqMaxGlobal[i] < colorMusic[i]) {
-              freqMaxGlobal[i] = colorMusic[i];
-            } else {
-              freqMaxGlobal[i] = colorMusic[i] * 0.0001 + freqMaxGlobal[i] * (1 - 0.0001);  //очень медленно уменьшается масксимум
-            }
-            //if(i == 1)
-            //    Serial.println("colorMusic[i] " + String(colorMusic[i]) + "   freqMaxGlobal[i] " + String(freqMaxGlobal[i]));
-            
-            if (colorMusic_f[i] > (freqMaxGlobal[i] * 0.2)) {
-              //Определяем яркость и цвет в зависимости от значения звука и среднего значения
-              thisBright[i] = 0;
-              if(colorMusic_f[i] > freqMaxGlobal[i] * 0.75) {//больше 3/4
-                thisBright[i] = 150;
-                currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * 0.2, freqMaxGlobal[i] * 0.75, 145, 20);
-              } else if(colorMusic_f[i] > freqMaxGlobal[i] * 0.5) {//больше среднего значения
-                thisBright[i] = 100;
-                currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * 0.2, freqMaxGlobal[i] * 0.75, 145, 20);
-              } else if(colorMusic_f[i] > freqMaxGlobal[i] * 0.2) {//если значение больше 1/4 максимального значения звука
-                thisBright[i] = 50;
-                currentColor[i] = 145;
-              }
-              thisColor[i] = currentColor[i] * SMOOTH_FREQ + thisColor[i] * (1 - SMOOTH_FREQ);      //делает смену цвета плавнее
-              //thisColor[i] = currentColor[i];
-              if(thisColor[i] < 0)
-                thisColor[i] = 145;
-              colorMusicFlash[i] = true;
-              running_flag[i] = true;
-            } else colorMusicFlash[i] = false;
-          } else {
-            if (colorMusic_f[i] > ((float)colorMusic_aver[i] * MAX_COEF_FREQ)) {
-              thisBright[i] = 255;
-              colorMusicFlash[i] = true;
-              running_flag[i] = true;
-            } else colorMusicFlash[i] = false;
+          if (colorMusic_f[i] > ((float)colorMusic_aver[i] * MAX_COEF_FREQ)) {
+            thisBright[i] = 255;
+            colorMusicFlash[i] = true;
+            running_flag[i] = true;
+          } else colorMusicFlash[i] = false; 
+          if (thisBright[i] >= 0) thisBright[i] -= SMOOTH_STEP;
+          if (thisBright[i] < EMPTY_BRIGHT) {
+            thisBright[i] = EMPTY_BRIGHT;
+            running_flag[i] = false;
           }
+        }
+        animation();
+      }
+      //4 режим изменённый
+      if (this_mode == 3) {
+        analyzeAudio();
+        colorMusicExt[0] = 0;
+        colorMusicExt[1] = 0;
+        colorMusicExt[2] = 0;
+        colorMusicExt[3] = 0;
+        colorMusicExt[4] = 0;
+        colorMusicExt[5] = 0;
+        for (int i = 0 ; i < 32 ; i++) {
+          if (fht_log_out[i] < SPEKTR_LOW_PASS) fht_log_out[i] = 0;
+        }
+        //(0 и 1 зашумленные!)
+        // низкие частоты, выборка 2 тон
+        for (byte i = 2; i < 3; i++) {
+          if (fht_log_out[i] > colorMusicExt[0]) colorMusicExt[0] = fht_log_out[i];
+        }
+        // низкие частоты, выборка со 3 тон
+        for (byte i = 3; i < 4; i++) {
+          if (fht_log_out[i] > colorMusicExt[1]) colorMusicExt[1] = fht_log_out[i];
+        }
+        // низкие частоты, выборка со 4 по 5 тон
+        for (byte i = 4; i < 6; i++) {
+          if (fht_log_out[i] > colorMusicExt[2]) colorMusicExt[2] = fht_log_out[2];
+        }
+        // средние частоты, выборка с 6 по 9 тон
+        for (byte i = 6; i < 9; i++) {
+          if (fht_log_out[i] > colorMusicExt[3]) colorMusicExt[3] = fht_log_out[3];
+        }
+        // средние частоты, выборка с 9 по 14 тон
+        for (byte i = 9; i < 15; i++) {
+          if (fht_log_out[i] > colorMusicExt[4]) colorMusicExt[4] = fht_log_out[4];
+        }
+        // высокие частоты, выборка с 14 по 31 тон
+        for (byte i = 15; i < 32; i++) {
+          if (fht_log_out[i] > colorMusicExt[5]) colorMusicExt[5] = fht_log_out[5];
+        }
+        freq_max = 0;
+        for (byte i = 0; i < 30; i++) {
+          if (fht_log_out[i + 2] > freq_max) freq_max = fht_log_out[i + 2];
+          if (freq_max < 5) freq_max = 5;
+
+          if (freq_f[i] < fht_log_out[i + 2]) freq_f[i] = fht_log_out[i + 2];
+          if (freq_f[i] > 0) freq_f[i] -= LIGHT_SMOOTH;
+          else freq_f[i] = 0;
+        }
+        freq_max_f = freq_max * averK + freq_max_f * (1 - averK);
+        for (byte i = 0; i < 6; i++) {
+          //Если максимальное значение увеличилось, то увеличиваем глобальное максимальное. Но есть максимальное уменьшилось, то уменьшаем его постепенно
+          if(freqMaxGlobal[i] < colorMusicExt[i]) {
+            freqMaxGlobal[i] = colorMusicExt[i];
+          } else {
+            freqMaxGlobal[i] = colorMusicExt[i] * 0.0001 + freqMaxGlobal[i] * (1 - 0.0001);  //очень медленно уменьшается масксимум
+          }
+          colorMusic_f[i] = colorMusicExt[i] * SMOOTH_FREQ + colorMusic_f[i] * (1 - SMOOTH_FREQ);      // локальная
+          //if(i == 0)
+          //    Serial.println("colorMusicExt[i] " + String(colorMusicExt[i]) + "   freqMaxGlobal[i] " + String(freqMaxGlobal[i]));
+          
+          if (colorMusic_f[i] > (freqMaxGlobal[i] * 0.5)) {
+            //Определяем яркость и цвет в зависимости от значения звука и среднего значения
+            thisBright[i] = 150;
+            currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * 0.5, freqMaxGlobal[i] * 0.8, 145, 20);
+            if (colorMusic_f[i] > (freqMaxGlobal[i] * 0.8)) {
+              currentColor[i] = 20;
+            }
+
+            thisColor[i] = currentColor[i] * SMOOTH_FREQ + thisColor[i] * (1 - SMOOTH_FREQ);      //делает смену цвета плавнее
+            //thisColor[i] = currentColor[i];
+            if(thisColor[i] < 0)
+              thisColor[i] = 145;
+            colorMusicFlash[i] = true;
+            running_flag[i] = true;
+          } else colorMusicFlash[i] = false;
           
           if (thisBright[i] >= 0) thisBright[i] -= SMOOTH_STEP;
           if (thisBright[i] < EMPTY_BRIGHT) {
@@ -477,6 +528,7 @@ void mainLoop() {
         }
         animation();
       }
+      
       if (this_mode == 5) {
         if ((long)millis() - strobe_timer > STROBE_PERIOD) {
           strobe_timer = millis();
@@ -574,9 +626,16 @@ void animation() {
       break;
     case 3:
       for (int i = 0; i < NUM_LEDS; i++) {
-        if (i < NUM_LEDS / 3)          leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
+        /*if (i < NUM_LEDS / 3)          leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
         else if (i < NUM_LEDS * 2 / 3) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
-        else if (i < NUM_LEDS)         leds[i] = CHSV(thisColor[0], 255, thisBright[0]);
+        else if (i < NUM_LEDS)         leds[i] = CHSV(thisColor[0], 255, thisBright[0]);*/
+
+        if (i < SEXTA)          leds[i] = CHSV(thisColor[5], 255, thisBright[5]);
+        else if (i < SEXTA * 2) leds[i] = CHSV(thisColor[4], 255, thisBright[4]);
+        else if (i < SEXTA * 3) leds[i] = CHSV(thisColor[3], 255, thisBright[3]);
+        else if (i < SEXTA * 4) leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
+        else if (i < SEXTA * 5) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
+        else if (i < SEXTA * 6) leds[i] = CHSV(thisColor[0], 255, thisBright[0]);
       }
       break;
     case 4:
@@ -924,6 +983,7 @@ void autoLowPass() {
 void analyzeAudio() {
   for (int i = 0 ; i < FHT_N ; i++) {
     int sample = analogRead(SOUND_R_FREQ);
+    //if(sample < 0) sample = 0;
     fht_input[i] = sample; // put real data into bins
   }
   fht_window();  // window the data for better frequency response
