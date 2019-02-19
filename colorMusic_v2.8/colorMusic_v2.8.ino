@@ -25,7 +25,7 @@
 #define RESET_SETTINGS 0    // сброс настроек в EEPROM памяти (поставить 1, прошиться, поставить обратно 0, прошиться. Всё)
 
 // ----- настройки ленты
-#define NUM_LEDS 18        // количество светодиодов (данная версия поддерживает до 410 штук)
+#define NUM_LEDS 120        // количество светодиодов (данная версия поддерживает до 410 штук)
 #define CURRENT_LIMIT 3000  // лимит по току в МИЛЛИАМПЕРАХ, автоматически управляет яркостью (пожалей свой блок питания!) 0 - выключить лимит
 byte BRIGHTNESS = 100;      // яркость по умолчанию (0 - 255)
 
@@ -185,6 +185,8 @@ byte HUE_STEP = 5;
 
 #define STRIPE NUM_LEDS / 5
 #define SEXTA NUM_LEDS / 6
+#define OCTAVA NUM_LEDS / 8
+#define OCTAVA_MIRROR NUM_LEDS / 15
 float freq_to_stripe = NUM_LEDS / 40; // /2 так как симметрия, и /20 так как 20 частот
 
 #define FHT_N 64         // ширина спектра х2
@@ -230,14 +232,14 @@ boolean lowFlag;
 byte low_pass;
 int RcurrentLevel, LcurrentLevel;
 int colorMusic[3];
-int colorMusicExt[6]; //расширенный спектр
-float colorMusic_f[6], colorMusic_aver[6];
-boolean colorMusicFlash[6], strobeUp_flag, strobeDwn_flag;
+int colorMusicExt[8]; //расширенный спектр
+float colorMusic_f[8], colorMusic_aver[8];
+boolean colorMusicFlash[8], strobeUp_flag, strobeDwn_flag;
 byte this_mode = MODE;
-int thisBright[6], strobe_bright = 0;
-int thisColor[6];
-int currentColor[6];
-float freqMaxGlobal[6]; //максимальное значение частот на каждом диапазоне глобальное (долго усредняется)
+int thisBright[8], strobe_bright = 0;
+int thisColor[8];
+int currentColor[8];
+float freqMaxGlobal[8]; //максимальное значение частот на каждом диапазоне глобальное (долго усредняется)
 unsigned int light_time = STROBE_PERIOD * STROBE_DUTY / 100;
 volatile boolean ir_flag;
 boolean settings_mode, ONstate = true;
@@ -246,7 +248,10 @@ int freq_max;
 float freq_max_f, rainbow_steps;
 int freq_f[32];
 int this_color;
-boolean running_flag[6], eeprom_flag;
+boolean running_flag[8], eeprom_flag;
+// вручную забитый массив тонов, сначала плавно, потом круче
+byte posOffset[8] = {2, 3, 4, 6, 8, 12, 16, 24};
+//byte posOffset[16] = {2, 3, 4, 6, 8, 10, 12, 14, 16, 20, 25, 30, 35, 60, 80, 100};
 
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
@@ -455,45 +460,14 @@ void mainLoop() {
         colorMusicExt[3] = 0;
         colorMusicExt[4] = 0;
         colorMusicExt[5] = 0;
-        for (int i = 0 ; i < 32 ; i++) {
-          if (fht_log_out[i] < SPEKTR_LOW_PASS) fht_log_out[i] = 0;
+        colorMusicExt[6] = 0;
+        colorMusicExt[7] = 0;
+        for (int pos = 0; pos < 8; pos++) {   // по кол-ву задействованных тонов в posOffset
+          if (fht_log_out[posOffset[pos]] < SPEKTR_LOW_PASS) fht_log_out[posOffset[pos]] = 0;
+          //Выборка по заготовленным частотам
+          colorMusicExt[pos] = fht_log_out[posOffset[pos]];
         }
-        //(0 и 1 зашумленные!)
-        // низкие частоты, выборка 2 тон
-        for (byte i = 2; i < 3; i++) {
-          if (fht_log_out[i] > colorMusicExt[0]) colorMusicExt[0] = fht_log_out[i];
-        }
-        // низкие частоты, выборка со 3 тон
-        for (byte i = 3; i < 4; i++) {
-          if (fht_log_out[i] > colorMusicExt[1]) colorMusicExt[1] = fht_log_out[i];
-        }
-        // низкие частоты, выборка со 4 по 5 тон
-        for (byte i = 4; i < 6; i++) {
-          if (fht_log_out[i] > colorMusicExt[2]) colorMusicExt[2] = fht_log_out[2];
-        }
-        // средние частоты, выборка с 6 по 9 тон
-        for (byte i = 6; i < 9; i++) {
-          if (fht_log_out[i] > colorMusicExt[3]) colorMusicExt[3] = fht_log_out[3];
-        }
-        // средние частоты, выборка с 9 по 14 тон
-        for (byte i = 9; i < 15; i++) {
-          if (fht_log_out[i] > colorMusicExt[4]) colorMusicExt[4] = fht_log_out[4];
-        }
-        // высокие частоты, выборка с 14 по 31 тон
-        for (byte i = 15; i < 32; i++) {
-          if (fht_log_out[i] > colorMusicExt[5]) colorMusicExt[5] = fht_log_out[5];
-        }
-        freq_max = 0;
-        for (byte i = 0; i < 30; i++) {
-          if (fht_log_out[i + 2] > freq_max) freq_max = fht_log_out[i + 2];
-          if (freq_max < 5) freq_max = 5;
-
-          if (freq_f[i] < fht_log_out[i + 2]) freq_f[i] = fht_log_out[i + 2];
-          if (freq_f[i] > 0) freq_f[i] -= LIGHT_SMOOTH;
-          else freq_f[i] = 0;
-        }
-        freq_max_f = freq_max * averK + freq_max_f * (1 - averK);
-        for (byte i = 0; i < 6; i++) {
+        for (byte i = 0; i < 8; i++) {
           //Если максимальное значение увеличилось, то увеличиваем глобальное максимальное. Но есть максимальное уменьшилось, то уменьшаем его постепенно
           if(freqMaxGlobal[i] < colorMusicExt[i]) {
             freqMaxGlobal[i] = colorMusicExt[i];
@@ -503,11 +477,19 @@ void mainLoop() {
           colorMusic_f[i] = colorMusicExt[i] * SMOOTH_FREQ + colorMusic_f[i] * (1 - SMOOTH_FREQ);      // локальная
           //if(i == 0)
           //    Serial.println("colorMusicExt[i] " + String(colorMusicExt[i]) + "   freqMaxGlobal[i] " + String(freqMaxGlobal[i]));
+
+          //Для низких частот более высокий порог загорания
+          float minPass = 0.5;
+          if(i < 2) {
+            minPass = 0.6;
+          } else if(i > 6) {
+            minPass = 0.3;
+          }
           
-          if (colorMusic_f[i] > (freqMaxGlobal[i] * 0.5)) {
+          if (colorMusic_f[i] > (freqMaxGlobal[i] * minPass)) { //Если значение частоты больше чем половина максимального(коэф разный для разных частот)
             //Определяем яркость и цвет в зависимости от значения звука и среднего значения
             thisBright[i] = 150;
-            currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * 0.5, freqMaxGlobal[i] * 0.8, 145, 20);
+            currentColor[i] = map(colorMusic_f[i], freqMaxGlobal[i] * minPass, freqMaxGlobal[i] * 0.8, 145, 20);
             if (colorMusic_f[i] > (freqMaxGlobal[i] * 0.8)) {
               currentColor[i] = 20;
             }
@@ -629,13 +611,24 @@ void animation() {
         /*if (i < NUM_LEDS / 3)          leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
         else if (i < NUM_LEDS * 2 / 3) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
         else if (i < NUM_LEDS)         leds[i] = CHSV(thisColor[0], 255, thisBright[0]);*/
-
-        if (i < SEXTA)          leds[i] = CHSV(thisColor[5], 255, thisBright[5]);
-        else if (i < SEXTA * 2) leds[i] = CHSV(thisColor[4], 255, thisBright[4]);
-        else if (i < SEXTA * 3) leds[i] = CHSV(thisColor[3], 255, thisBright[3]);
-        else if (i < SEXTA * 4) leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
-        else if (i < SEXTA * 5) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
-        else if (i < SEXTA * 6) leds[i] = CHSV(thisColor[0], 255, thisBright[0]);
+        /*for (int j = 1; j < 16 ; j++) {
+          if ((i < OCTAVA_MIRROR * j) && (i >= OCTAVA_MIRROR * (j-1))) leds[i] = CHSV(thisColor[j-1], 255, thisBright[j-1]);
+        }*/
+        if (i < OCTAVA_MIRROR)          leds[i] = CHSV(thisColor[7], 255, thisBright[7]);
+        else if (i < OCTAVA_MIRROR * 2) leds[i] = CHSV(thisColor[6], 255, thisBright[6]);
+        else if (i < OCTAVA_MIRROR * 3) leds[i] = CHSV(thisColor[5], 255, thisBright[5]);
+        else if (i < OCTAVA_MIRROR * 4) leds[i] = CHSV(thisColor[4], 255, thisBright[4]);
+        else if (i < OCTAVA_MIRROR * 5) leds[i] = CHSV(thisColor[3], 255, thisBright[3]);
+        else if (i < OCTAVA_MIRROR * 6) leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
+        else if (i < OCTAVA_MIRROR * 7) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
+        else if (i < OCTAVA_MIRROR * 8) leds[i] = CHSV(thisColor[0], 255, thisBright[0]);
+        else if (i < OCTAVA_MIRROR * 9) leds[i] = CHSV(thisColor[1], 255, thisBright[1]);
+        else if (i < OCTAVA_MIRROR * 10) leds[i] = CHSV(thisColor[2], 255, thisBright[2]);
+        else if (i < OCTAVA_MIRROR * 11) leds[i] = CHSV(thisColor[3], 255, thisBright[3]);
+        else if (i < OCTAVA_MIRROR * 12) leds[i] = CHSV(thisColor[4], 255, thisBright[4]);
+        else if (i < OCTAVA_MIRROR * 13) leds[i] = CHSV(thisColor[5], 255, thisBright[5]);
+        else if (i < OCTAVA_MIRROR * 14) leds[i] = CHSV(thisColor[6], 255, thisBright[6]);
+        else if (i < OCTAVA_MIRROR * 15) leds[i] = CHSV(thisColor[7], 255, thisBright[7]);
       }
       break;
     case 4:
